@@ -1,51 +1,73 @@
-# OMP Usage
+# OmaUsage
 
-Subscription limits for every AI account logged in to [Oh My Pi](https://github.com/can1357/oh-my-pi), in the Omarchy bar.
+Subscription limits for every AI account logged in to [Oh My Pi](https://github.com/can1357/oh-my-pi), in the Omarchy bar. Each provider shows up as its own logo with a percentage next to it.
+
+Forked from [omarchy-omp-usage](https://github.com/Mirceone/omarchy-omp-usage) by Mirceone. The usage polling, plan lookups, and panel are theirs. This fork replaces the signal-bar icon with provider logos and adds the display settings below.
 
 ![Panel preview](preview.png)
 
-## Features
+## What it shows
 
-- **Signal-bar icon.** A dual-SIM style meter: the top row of bars is your first account, the bottom row of squares is your second. More lit means more left; a row turns red at 90% used. Hover for what's left on every account.
-- **Every account in one panel.** Codex, Claude, Cursor, Copilot, Gemini — whatever OMP reports — with usage bars, spend amounts, and reset times. Accounts whose provider doesn't report usage are listed with a note.
-- **Exact plans.** "Plus plan", "Pro plan", "Max 20x plan" where the provider exposes it; otherwise "Subscription" or "API key".
-- **Light on your system.** Usage is checked when you open the panel and every 5 minutes (configurable), nothing more.
-- **Accounts come and go on their own.** Log in or out of an account in OMP and it appears in (or disappears from) the panel and icon within 30 seconds, or right away when you open the panel.
-- **Rate-limit aware.** Anthropic throttles its usage endpoint, so Claude is polled at most once a minute with backoff, and OMP's recorded usage fills the gaps. Stale data is labelled, never shown as current.
-- **Drag to reorder.** Drag an account's name in the panel; the order also decides which accounts the icon shows.
+The bar gets one reading per account: the provider's logo and how much is left of its tightest limit. If Claude's 5-hour window is at 40% and its weekly window at 10%, the bar says 60%, because that's the one that stops you first. A reading turns the urgent colour at 90% used. Hover for every account at once.
+
+On a vertical bar the number sits under the logo and drops the `%` so it fits.
+
+The panel lists every limit per account with a meter, spend figures where the provider reports them, reset times, and the plan ("Pro plan", "Max 20x plan", or "Subscription" / "API key" when the plan isn't exposed). Drag an account's name to reorder; the bar follows the same order.
+
+Logos ship for Claude, Codex, OpenAI, Cursor, Copilot, Gemini, Grok, Z.ai, Kimi, OpenRouter, Perplexity, Kilo and Fireworks. Any other provider gets its initial. The logos are drawn in the bar's text colour, so they follow your theme.
+
+## Settings
+
+Change these from the bar's widget settings, or with `omarchy bar set`:
+
+| Key | Values | Default | |
+|---|---|---|---|
+| `barDisplay` | `all`, `most-used` | `all` | Every account in the bar, or only the one with the least left |
+| `percentShown` | `left`, `used` | `left` | Percent left or percent used, in the bar, tooltip and panel |
+| `refreshIntervalSec` | 30 to 3600 | 300 | How often usage is checked, besides each time the panel opens |
+
+```bash
+omarchy bar set io.github.terrifiedbug.omausage barDisplay most-used
+omarchy bar set io.github.terrifiedbug.omausage percentShown used
+```
 
 ## Requirements
 
 - Omarchy with the Quickshell shell
 - [Oh My Pi](https://github.com/can1357/oh-my-pi) (`omp` on `PATH`) with at least one account logged in via `/login`
 - `bash`
-- `sqlite3` (installed with Omarchy): used to notice account logins and logouts
-- `python3` (optional): used only for exact Claude and Cursor plan names; without it those show "Subscription"
+- `sqlite3` (installed with Omarchy), used to notice account logins and logouts
+- `python3` (optional), used only for exact Claude and Cursor plan names; without it those show "Subscription"
 
 ## Install
 
+From a checkout of this repo:
+
 ```bash
-omarchy plugin add https://github.com/Mirceone/omarchy-omp-usage.git --enable
+omarchy plugin add "file://$PWD" --enable
+```
+
+If you also have the original OMP Usage plugin installed, disable it so you don't get two widgets:
+
+```bash
+omarchy plugin disable omp.usage-monitor
 ```
 
 ## Remove
 
 ```bash
-omarchy plugin remove omp.usage-monitor
-rm -f ~/.local/state/omarchy/omp-usage-monitor.json   # saved account order
+omarchy plugin remove io.github.terrifiedbug.omausage
+rm -f ~/.local/state/omarchy/omausage.json   # saved account order
 ```
 
 ## What it accesses
 
-- Runs `omp usage --json` and `omp usage --history --json`; this is how all usage data is read.
-- Every 30 seconds and when the panel opens, reads which accounts are logged in from OMP's credential store (`~/.omp/agent/agent.db`, read-only) with `sqlite3`: only provider, credential type, and account identity, never tokens.
-- `plans.py` reads OMP's credential store (read-only) to look up Claude and Cursor plan names. Each token is sent only to the provider that issued it (`api.anthropic.com`, `api2.cursor.sh` / `cursor.com`) and is never printed, logged, or stored. Lookups refuse redirects, cap responses at 1 MiB, and give up after 8 seconds in total.
-- Writes only `~/.local/state/omarchy/omp-usage-monitor.json` (your account order). No other configuration is changed.
-
-## Settings
-
-`refreshIntervalSec` (default 300): how often usage is checked, besides each time the panel opens.
+- Runs `omp usage --json` and `omp usage --history --json`. All usage data comes from there.
+- Every 30 seconds and when the panel opens, reads which accounts are logged in from OMP's credential store (`~/.omp/agent/agent.db`, read-only) with `sqlite3`. It reads provider, credential type and account identity, never tokens.
+- `plans.py` reads the same store (read-only) to look up Claude and Cursor plan names. Each token goes only to the provider that issued it (`api.anthropic.com`, `api2.cursor.sh` / `cursor.com`) and is never printed, logged or stored. Lookups refuse redirects, cap responses at 1 MiB, and give up after 8 seconds.
+- Anthropic throttles its usage endpoint, so Claude is polled at most once a minute with backoff, and OMP's recorded usage fills the gaps. Stale data is labelled as stale.
+- Writes only `~/.local/state/omarchy/omausage.json` (your account order).
 
 ## License
 
-MIT
+MIT. Provider logos are path data from [lobe-icons](https://github.com/lobehub/lobe-icons) (MIT); see NOTICE.
