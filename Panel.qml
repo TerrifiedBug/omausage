@@ -128,6 +128,18 @@ Panel {
     return ""
   }
 
+  // Same write path as the widget settings form: rebuild the whole inline
+  // entry, apply it locally so the bar redraws on the click, then persist to
+  // shell.json. Without a writable entry it stays a session-only choice.
+  function persistSettings(values) {
+    var entry = { id: root.moduleName }
+    for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
+    for (var key in values) entry[key] = values[key]
+    root.settings = entry
+    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
+
   // Clear drag state before reordering: the reorder moves the very section
   // whose mouse handler is calling this.
   function finishDrag(commit) {
@@ -711,6 +723,25 @@ Panel {
             wrapMode: Text.WordWrap
           }
 
+          // ---- Display: the two manifest enums, one click away.
+          PanelSeparator { width: parent.width; foreground: root.foreground }
+
+          SettingRow {
+            width: parent.width
+            label: "Bar shows"
+            value: root.barDisplay
+            options: [{ value: "all", label: "All" }, { value: "most-used", label: "Most used" }]
+            onPicked: function(value) { root.persistSettings({ barDisplay: value }) }
+          }
+
+          SettingRow {
+            width: parent.width
+            label: "Percent"
+            value: root.percentShown
+            options: [{ value: "left", label: "Left" }, { value: "used", label: "Used" }]
+            onPicked: function(value) { root.persistSettings({ percentShown: value }) }
+          }
+
           Text {
             textFormat: Text.PlainText
             width: parent.width
@@ -908,6 +939,40 @@ Panel {
       color: root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
+    }
+  }
+
+  // Label on the left, a pick-one chip group on the right.
+  component SettingRow: Item {
+    id: settingRow
+    property string label: ""
+    property string value: ""
+    property var options: []
+    signal picked(string value)
+    implicitHeight: Math.max(settingLabel.implicitHeight, chips.implicitHeight)
+
+    Text {
+      id: settingLabel
+      textFormat: Text.PlainText
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      text: settingRow.label
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+    ButtonGroup {
+      id: chips
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.spacing.sm
+      options: settingRow.options
+      value: settingRow.value
+      focusable: false
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      fontSize: Style.font.caption
+      onChanged: function(value) { if (value !== settingRow.value) settingRow.picked(value) }
     }
   }
 

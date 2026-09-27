@@ -18,7 +18,7 @@ Logos ship for Claude, Codex, OpenAI, Cursor, Copilot, Gemini, Grok, Z.ai, Kimi,
 
 ## Settings
 
-Change these from the bar's widget settings, or with `omarchy bar set`:
+Change these with the toggles at the bottom of the panel, from the widget settings, or with `omarchy bar set`:
 
 | Key | Values | Default | |
 |---|---|---|---|
