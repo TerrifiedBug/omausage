@@ -41,10 +41,8 @@ omarchy bar set io.github.terrifiedbug.omausage percentShown used
 
 ## Install
 
-From a checkout of this repo:
-
 ```bash
-omarchy plugin add "file://$PWD" --enable
+omarchy plugin add https://github.com/TerrifiedBug/omausage.git --enable
 ```
 
 If you also have the original OMP Usage plugin installed, disable it so you don't get two widgets:
