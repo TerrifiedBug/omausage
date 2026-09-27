@@ -1,14 +1,24 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "Model.js" as Model
+import "ProviderIcons.js" as ProviderIcons
 
+// OmaUsage: OMP subscription limits in the bar and a panel. Forked from
+// Mirceone/omarchy-omp-usage. The bar draws each provider's own mark with
+// its percentage (every account, or only the one with the least left); the
+// panel lists every limit. Usage math lives in Model.js, marks in
+// ProviderIcons.js as vector paths so they tint with the theme.
 Panel {
   id: root
-  moduleName: "omp.usage-monitor"
-  ipcTarget: "omp.usage-monitor"
+  moduleName: "io.github.terrifiedbug.omausage"
+  ipcTarget: "io.github.terrifiedbug.omausage"
   manageIpc: false
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -17,6 +27,10 @@ Panel {
   readonly property color track: Style.selectedFillFor(foreground, Color.accent)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property int refreshIntervalSec: Math.max(30, Number(settings && settings.refreshIntervalSec || 300))
+  // "all" = every account with usage; "most-used" = only the one with the least left.
+  readonly property string barDisplay: Model.normalizeDisplay(setting("barDisplay", "all"))
+  // "left" = headroom; "used" = consumption. Applies to bar, tooltip, and panel.
+  readonly property string percentShown: Model.normalizePercent(setting("percentShown", "left"))
 
   property var reports: []
   property string errorText: ""
@@ -35,7 +49,7 @@ Panel {
   property string dragKey: ""
   property int dropIndex: -1
 
-  readonly property string statePath: Quickshell.env("HOME") + "/.local/state/omarchy/omp-usage-monitor.json"
+  readonly property string statePath: Quickshell.env("HOME") + "/.local/state/omarchy/omausage.json"
   readonly property string credentialStore: Quickshell.env("HOME") + "/.omp/agent/agent.db"
   // Identity of every enabled OMP credential (no secrets); a change means an
   // account was logged in or out. null until the first read.
@@ -82,87 +96,15 @@ Panel {
 
   ListModel { id: sectionModel }
 
-  readonly property bool alarming: {
-    for (var r = 0; r < displayReports.length; r++) {
-      var limits = displayReports[r].limits || []
-      for (var i = 0; i < limits.length; i++)
-        if (!windowExpired(limits[i]) && Number(usedFraction(limits[i])) >= 0.9) return true
-    }
-    return false
-  }
-
-  // Worst (highest) used fraction across an account's live limits, or
-  // undefined when it has no limit a meter can be drawn from.
-  function worstUsed(report) {
-    if (!report || report.noUsage) return undefined
-    var worst
-    var limits = report.limits || []
-    for (var i = 0; i < limits.length; i++) {
-      if (windowExpired(limits[i])) continue
-      var used = usedFraction(limits[i])
-      if (used === undefined || isNaN(used)) continue
-      worst = worst === undefined ? used : Math.max(worst, used)
-    }
-    return worst
-  }
-
-  // Bar icon meters: first two accounts (in the panel's order) that report
-  // usage. Each is { name, used, level 0..4, alarming }.
-  readonly property var meters: {
-    var list = []
-    for (var i = 0; i < displayReports.length && list.length < 2; i++) {
-      var used = worstUsed(displayReports[i])
-      if (used === undefined) continue
-      var left = Math.max(0, 1 - used)
-      list.push({
-        name: providerName(displayReports[i].provider),
-        used: used,
-        level: Math.max(0, Math.min(4, Math.ceil(left * 4 - 1e-9))),
-        alarming: used >= 0.9
-      })
-    }
-    return list
-  }
-
-  // An account beyond the two shown meters is running low.
-  readonly property bool hiddenAlarm: {
-    var shown = 0
-    for (var i = 0; i < displayReports.length; i++) {
-      var used = worstUsed(displayReports[i])
-      if (used === undefined) continue
-      if (shown++ >= 2 && used >= 0.9) return true
-    }
-    return false
-  }
-
-  readonly property string meterTooltip: {
-    var parts = []
-    for (var i = 0; i < displayReports.length; i++) {
-      var used = worstUsed(displayReports[i])
-      if (used !== undefined)
-        parts.push(providerName(displayReports[i].provider) + " " + Math.round(Math.max(0, 1 - used) * 100) + "% left")
-    }
-    return parts.length > 0 ? parts.join(" · ") : "OMP Usage"
-  }
+  // Every account with a live figure (tooltip), and what the bar draws.
+  readonly property var allEntries: Model.barEntries(displayReports, "all", nowMs)
+  readonly property var shownEntries: barDisplay === "all" ? allEntries : Model.barEntries(displayReports, barDisplay, nowMs)
+  readonly property string barTooltip: Model.tooltipText(allEntries, percentShown)
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  function providerName(id) {
-    var names = { "openai-codex": "Codex", "anthropic": "Claude", "cursor": "Cursor" }
-    if (names[id]) return names[id]
-    // Same title-casing OMP itself uses for provider ids ("github-copilot" -> "Github Copilot").
-    return String(id || "Unknown provider").split(/[-_]/).map(function(part) {
-      return part ? part[0].toUpperCase() + part.slice(1) : ""
-    }).join(" ")
-  }
-
-  function providerIcon(id) {
-    if (id === "openai-codex") return Qt.resolvedUrl("assets/codex.svg")
-    if (id === "anthropic") return Qt.resolvedUrl("assets/claude.svg")
-    if (id === "cursor") return Qt.resolvedUrl("assets/cursor.svg")
-    return ""
-  }
+  function providerName(id) { return Model.providerName(id) }
 
   function formatPlanName(value) {
     return String(value).split(/[-_ ]+/).map(function(part) {
@@ -218,16 +160,7 @@ Panel {
     }
   }
 
-  // Mirrors OMP's resolveUsedFraction: explicit fraction > used/limit >
-  // percent-unit used > inverted remaining. undefined = no quota to draw.
-  function usedFraction(limit) {
-    var amount = limit && limit.amount ? limit.amount : {}
-    if (amount.usedFraction !== undefined) return Number(amount.usedFraction)
-    if (amount.used !== undefined && Number(amount.limit) > 0) return amount.used / amount.limit
-    if (amount.unit === "percent" && amount.used !== undefined) return amount.used / 100
-    if (amount.remainingFraction !== undefined) return Math.max(0, 1 - amount.remainingFraction)
-    return undefined
-  }
+  function usedFraction(limit) { return Model.usedFraction(limit) }
 
   function formatQuantity(value, unit) {
     if (unit === "usd") return "$" + Number(value).toFixed(2)
@@ -333,18 +266,9 @@ Panel {
     return resetAt > 0 ? "Resets in " + formatDuration(resetAt - nowMs) : ""
   }
 
-  // OMP falls back to its last cached report (however old) when a provider
-  // rate-limits the usage endpoint. A window whose reset has passed carries no
-  // valid usage figure.
-  function windowExpired(limit) {
-    var resetAt = Number(limit && limit.window && limit.window.resetsAt)
-    return resetAt > 0 && resetAt <= nowMs
-  }
+  function windowExpired(limit) { return Model.windowExpired(limit, nowMs) }
 
-  function reportKey(report) {
-    var metadata = report && report.metadata ? report.metadata : {}
-    return String(report && report.provider) + "|" + String(metadata.accountId || metadata.email || "")
-  }
+  function reportKey(report) { return Model.reportKey(report) }
 
   // Logged-in accounts OMP has no usage endpoint (or no data) for.
   function accountWithoutUsage(account) {
@@ -655,67 +579,31 @@ Panel {
     function refresh(): string { root.refresh(); return "ok" }
   }
 
-  BarIconButton {
+  // Nothing reports usage yet: OMP's π as plain text. Otherwise one reading
+  // (provider mark + percentage) per shown account, side by side on a
+  // horizontal bar and stacked on a vertical one.
+  WidgetButton {
     id: button
+    readonly property bool hasReadings: root.shownEntries.length > 0
     anchors.fill: parent
     bar: root.bar
-    // Dual-SIM style signal: top row bars = first account, bottom row dots =
-    // second account; more lit = more usage left. π when nothing reports usage.
-    text: root.meters.length === 0 ? "π" : ""
-    iconComponent: root.meters.length === 0 ? null : signalIcon
-    // 17px canvas centers on whole pixels in the 27px slot, keeping bars crisp.
-    opticalSize: 17
-    active: root.alarming
-    tooltipText: root.meterTooltip
+    text: hasReadings ? "" : "π"
+    hasVisualContent: true
+    fixedWidth: hasReadings && !vertical ? readings.implicitWidth + scaledHorizontalMargin * 2 : -1
+    fixedHeight: hasReadings && vertical ? readings.implicitHeight + scaledVerticalPadding * 2 : -1
+    tooltipText: root.barTooltip
     onPressed: function(buttonCode) { root.toggle() }
-  }
 
-  Component {
-    id: signalIcon
-    Item {
-      id: signal
-      readonly property color lit: button.foreground
-      readonly property color dimmed: Qt.rgba(lit.r, lit.g, lit.b, 0.28)
-      readonly property var primary: root.meters.length > 0 ? root.meters[0] : null
-      readonly property var secondary: root.meters.length > 1 ? root.meters[1] : null
-      readonly property color primaryColor: primary && (primary.alarming || root.hiddenAlarm) ? button.activeColor : lit
-      readonly property color secondaryColor: secondary && (secondary.alarming || root.hiddenAlarm) ? button.activeColor : lit
-
-      // Laid out in physical pixels (u) so fractional display scaling keeps
-      // segments even: 3px wide, 1px apart, bars 3/5/7/9px tall, 3px squares,
-      // 3px between rows, 1px corner radius. Centered in the icon canvas.
-      // Window ratio, not Screen: Wayland reports Screen at the rounded-up
-      // integer scale (2 on a 1.25x output).
-      readonly property real u: 1 / Math.max(1, Window.window ? Window.window.devicePixelRatio : 1)
-      readonly property real contentWidth: 15 * u
-      readonly property real contentHeight: (secondary ? 15 : 9) * u
-      readonly property real originX: (width - contentWidth) / 2
-      readonly property real originY: (height - contentHeight) / 2
-
+    Grid {
+      id: readings
+      anchors.centerIn: parent
+      visible: button.hasReadings
+      columns: button.vertical ? 1 : Math.max(1, root.shownEntries.length)
+      columnSpacing: Style.space(10)
+      rowSpacing: Style.space(8)
       Repeater {
-        model: 4
-        Rectangle {
-          required property int index
-          x: signal.originX + index * 4 * signal.u
-          width: 3 * signal.u
-          height: (3 + index * 2) * signal.u
-          y: signal.originY + 9 * signal.u - height
-          radius: signal.u
-          color: signal.primary && index < signal.primary.level ? signal.primaryColor : signal.dimmed
-        }
-      }
-
-      Repeater {
-        model: signal.secondary ? 4 : 0
-        Rectangle {
-          required property int index
-          x: signal.originX + index * 4 * signal.u
-          y: signal.originY + 12 * signal.u
-          width: 3 * signal.u
-          height: 3 * signal.u
-          radius: signal.u
-          color: index < signal.secondary.level ? signal.secondaryColor : signal.dimmed
-        }
+        model: root.shownEntries
+        BarReading {}
       }
     }
   }
@@ -774,7 +662,7 @@ Panel {
 
           PanelHero {
             width: parent.width
-            title: "OMP Usage"
+            title: "OmaUsage"
             meta: root.reports.length === 1 ? "Oh My Pi · 1 account" : "Oh My Pi · " + root.reports.length + " accounts"
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -813,6 +701,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: root.errorText !== ""
             width: parent.width
             text: root.errorText
@@ -823,6 +712,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width
             text: "Updates on open and every " + root.formatDuration(root.refreshIntervalSec * 1000) + " · drag a name to reorder"
             color: root.dim
@@ -845,7 +735,6 @@ Panel {
     z: dragging ? 10 : 0
     opacity: dragging ? 0.6 : 1
     transform: Translate { y: section.dragging ? section.dragOffset : 0 }
-    readonly property string iconSource: report ? root.providerIcon(report.provider) : ""
     readonly property int resetCount: report && report.resetCredits ? Number(report.resetCredits.availableCount) || 0 : 0
     spacing: Style.space(10)
 
@@ -880,32 +769,16 @@ Panel {
         onCanceled: root.finishDrag(false)
       }
 
-      Item {
+      ProviderMark {
         id: icon
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         width: Style.font.body * 1.25
         height: width
-        Image {
-          anchors.fill: parent
-          visible: section.iconSource !== ""
-          source: section.iconSource
-          sourceSize.width: parent.width * 2
-          sourceSize.height: parent.height * 2
-          fillMode: Image.PreserveAspectFit
-        }
-        // Providers without a bundled logo get their initial instead.
-        Text {
-          anchors.centerIn: parent
-          visible: section.iconSource === ""
-          text: section.report ? root.providerName(section.report.provider).charAt(0) : ""
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-        }
+        provider: section.report ? section.report.provider : ""
       }
       Text {
+        textFormat: Text.PlainText
         id: name
         anchors.left: icon.right
         anchors.leftMargin: Style.spacing.sm
@@ -917,6 +790,7 @@ Panel {
         font.bold: true
       }
       Text {
+        textFormat: Text.PlainText
         anchors.left: name.right
         anchors.leftMargin: Style.spacing.sm
         anchors.right: parent.right
@@ -940,6 +814,7 @@ Panel {
     }
 
     Text {
+      textFormat: Text.PlainText
       visible: !!(section.report && section.report.noUsage)
       width: parent.width
       text: section.report ? "Logged in, but " + root.providerName(section.report.provider) + " doesn't report usage to Oh My Pi." : ""
@@ -950,6 +825,7 @@ Panel {
     }
 
     Text {
+      textFormat: Text.PlainText
       visible: section.resetCount > 0
       width: parent.width
       text: section.resetCount + " saved reset" + (section.resetCount === 1 ? "" : "s")
@@ -959,6 +835,7 @@ Panel {
     }
 
     Text {
+      textFormat: Text.PlainText
       visible: text !== ""
       width: parent.width
       text: root.staleText(section.report)
@@ -975,14 +852,17 @@ Panel {
     readonly property bool expired: root.windowExpired(limit)
     readonly property var rawFraction: root.usedFraction(limit)
     readonly property bool hasBar: rawFraction !== undefined && !isNaN(rawFraction)
-    readonly property real fraction: expired || !hasBar ? 0 : Math.max(0, Math.min(1, rawFraction))
-    readonly property bool alarming: fraction >= 0.9
+    readonly property bool live: hasBar && !expired
+    // The meter fills with what is left or what is used, per percentShown.
+    readonly property real fill: live ? Model.shownFraction(rawFraction, root.percentShown) : 0
+    readonly property bool alarming: live && rawFraction >= Model.ALARM_USED
     spacing: Style.space(6)
 
     Item {
       width: parent.width
       implicitHeight: Math.max(label.implicitHeight, value.implicitHeight)
       Text {
+        textFormat: Text.PlainText
         id: label
         anchors.left: parent.left
         anchors.right: value.left
@@ -995,10 +875,11 @@ Panel {
         elide: Text.ElideRight
       }
       Text {
+        textFormat: Text.PlainText
         id: value
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        text: limitRow.expired ? "—" : limitRow.hasBar ? Math.round(limitRow.fraction * 100) + "%" : root.amountText(limitRow.limit)
+        text: limitRow.expired ? "—" : limitRow.hasBar ? Model.percentLabel(limitRow.rawFraction, root.percentShown) : root.amountText(limitRow.limit)
         color: limitRow.alarming ? root.urgent : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -1012,7 +893,7 @@ Panel {
       radius: height / 2
       color: root.track
       Rectangle {
-        width: parent.width * limitRow.fraction
+        width: parent.width * limitRow.fill
         height: parent.height
         radius: height / 2
         color: limitRow.alarming ? root.urgent : Color.accent
@@ -1020,12 +901,75 @@ Panel {
     }
 
     Text {
+      textFormat: Text.PlainText
       visible: text !== ""
       width: parent.width
       text: root.detailText(limitRow.limit, limitRow.hasBar)
       color: root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
+    }
+  }
+
+  // One account in the bar: its mark, then its percentage. On a vertical bar
+  // the percentage sits under the mark and drops "%" to fit the narrow column.
+  component BarReading: Grid {
+    id: reading
+    required property var modelData
+    readonly property color tint: modelData.alarming ? button.activeColor : button.foreground
+    columns: button.vertical ? 1 : 2
+    columnSpacing: Style.space(4)
+    rowSpacing: Style.space(2)
+    horizontalItemAlignment: Grid.AlignHCenter
+    verticalItemAlignment: Grid.AlignVCenter
+
+    ProviderMark {
+      width: Style.bar.iconFont
+      height: width
+      provider: reading.modelData.provider
+      color: reading.tint
+      fontFamily: button.fontFamily
+    }
+    Text {
+      textFormat: Text.PlainText
+      text: Model.percentValue(reading.modelData.used, root.percentShown) + (button.vertical ? "" : "%")
+      color: reading.tint
+      font.family: button.fontFamily
+      font.pixelSize: button.vertical ? Style.font.caption : button.fontSize
+      renderType: Text.NativeRendering
+    }
+  }
+
+  // A provider's brand mark as a vector path, tinted like text. Providers
+  // without a bundled mark get their initial instead.
+  component ProviderMark: Item {
+    id: mark
+    property string provider: ""
+    property color color: root.foreground
+    property string fontFamily: root.fontFamily
+    readonly property string path: ProviderIcons.providerPath(provider)
+
+    Shape {
+      anchors.fill: parent
+      visible: mark.path !== ""
+      preferredRendererType: Shape.CurveRenderer
+      ShapePath {
+        fillColor: mark.color
+        fillRule: ShapePath.OddEvenFill
+        strokeWidth: -1
+        scale: Qt.size(mark.width / ProviderIcons.VIEWBOX, mark.height / ProviderIcons.VIEWBOX)
+        PathSvg { path: mark.path }
+      }
+    }
+    Text {
+      anchors.centerIn: parent
+      visible: mark.path === ""
+      textFormat: Text.PlainText
+      text: Model.providerName(mark.provider).charAt(0)
+      color: mark.color
+      font.family: mark.fontFamily
+      font.pixelSize: mark.height
+      font.bold: true
     }
   }
 }

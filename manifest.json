@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "omp.usage-monitor",
-  "name": "OMP Usage",
-  "version": "1.0.3",
-  "author": "Mirceone",
+  "id": "io.github.terrifiedbug.omausage",
+  "name": "OmaUsage",
+  "version": "1.1.0",
+  "author": "TerrifiedBug",
   "license": "MIT",
-  "description": "Signal-bar usage meter for every AI subscription logged in to Oh My Pi: limits, plans, and resets in one panel.",
+  "description": "Usage limits for every AI subscription logged in to Oh My Pi, with each provider's logo and percentage in the bar.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,8 +14,8 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "OMP Usage",
-    "description": "Signal-bar usage meter and panel for every account logged in to Oh My Pi.",
+    "displayName": "OmaUsage",
+    "description": "Provider logos and percentages in the bar, plus a panel with every limit, plan, and reset for each account logged in to Oh My Pi.",
     "category": "AI",
     "aliases": [
       "omp",
@@ -24,9 +24,33 @@
     ],
     "allowMultiple": false,
     "defaults": {
-      "refreshIntervalSec": 300
+      "refreshIntervalSec": 300,
+      "barDisplay": "all",
+      "percentShown": "left"
     },
     "schema": [
+      {
+        "key": "barDisplay",
+        "type": "enum",
+        "label": "Bar shows",
+        "description": "Every provider with its logo and percentage, or only the one closest to its limit.",
+        "options": [
+          { "value": "all", "label": "All providers" },
+          { "value": "most-used", "label": "Most used provider" }
+        ],
+        "defaultValue": "all"
+      },
+      {
+        "key": "percentShown",
+        "type": "enum",
+        "label": "Percentages show",
+        "description": "Applies to the bar, its tooltip, and the panel meters.",
+        "options": [
+          { "value": "left", "label": "Percent left" },
+          { "value": "used", "label": "Percent used" }
+        ],
+        "defaultValue": "left"
+      },
       {
         "key": "refreshIntervalSec",
         "type": "integer",
@@ -39,5 +63,5 @@
     ],
     "defaultSection": "right"
   },
-  "repository": "https://github.com/Mirceone/omarchy-omp-usage"
+  "repository": null
 }
