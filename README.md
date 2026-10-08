@@ -66,6 +66,12 @@ rm -f ~/.local/state/omarchy/omausage.json   # saved account order
 - Anthropic throttles its usage endpoint, so Claude is polled at most once a minute with backoff, and OMP's recorded usage fills the gaps. Stale data is labelled as stale.
 - Writes only `~/.local/state/omarchy/omausage.json` (your account order).
 
+## Theme compatibility
+
+Theme colors use a namespaced `qs.Commons.Color` import to avoid Qt 6.12's
+`Color` name collision. This keeps the existing palette roles and fallbacks
+without changing the plugin's Omarchy requirements.
+
 ## License
 
 MIT. Provider logos are path data from [lobe-icons](https://github.com/lobehub/lobe-icons) (MIT); see NOTICE.

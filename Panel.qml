@@ -6,6 +6,7 @@ import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 import "ProviderIcons.js" as ProviderIcons
@@ -21,10 +22,10 @@ Panel {
   ipcTarget: "io.github.terrifiedbug.omausage"
   manageIpc: false
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.55)
-  readonly property color track: Style.selectedFillFor(foreground, Color.accent)
+  readonly property color track: Style.selectedFillFor(foreground, Commons.Color.accent)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property int refreshIntervalSec: Math.max(30, Number(settings && settings.refreshIntervalSec || 300))
   // "all" = every account with usage; "most-used" = only the one with the least left.
@@ -663,7 +664,7 @@ Panel {
           width: panelFlick.width
           height: Math.max(2, Style.space(2))
           radius: height / 2
-          color: Color.accent
+          color: Commons.Color.accent
           y: root.dropLineY(root.dropIndex) - height / 2
         }
 
@@ -927,7 +928,7 @@ Panel {
         width: parent.width * limitRow.fill
         height: parent.height
         radius: height / 2
-        color: limitRow.alarming ? root.urgent : Color.accent
+        color: limitRow.alarming ? root.urgent : Commons.Color.accent
       }
     }
 
